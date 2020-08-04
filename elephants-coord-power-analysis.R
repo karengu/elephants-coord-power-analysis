@@ -94,7 +94,7 @@ analyze.power <- function(n.participants, n.sim) {
     mutate(tidy = map(seed, sim.and.fit, n.participants = n.participants)) %>% 
     unnest(tidy)
   
-  sims %>% write.csv(paste(paste('./elephants-coord-sim', n.participants, sep="-"), '.csv', sep=""))
+  sims %>% write.csv(paste(paste('./output/elephants-coord-sim', n.participants, sep="-"), '.csv', sep=""))
 
   sims %>% select(seed, term, lower) %>% spread(term, lower)
 }
@@ -103,7 +103,7 @@ power.data <- tibble(trial = seq(50, 300, by=50)) %>%
   mutate(tidy = map(trial, analyze.power, n.sim = 100)) %>%
   unnest(tidy)
 
-power.data %>% write.csv('./elephants-coord-power-data.csv')
+power.data %>% write.csv('./output/elephants-coord-power-data.csv')
 
 power.data %>% 
   mutate(achieved = b_conditionnp > 0 | b_conditionpp > 0 | b_conditionvp > 0) %>%
