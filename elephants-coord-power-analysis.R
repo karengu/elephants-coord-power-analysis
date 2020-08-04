@@ -2,7 +2,6 @@ library(brms)
 library(tidyverse)
 library(broom)
 library(tidybayes)
-library(knitr)
 
 df.query.pilot1 <- read.csv('preprocessing/elephants-coord-20200414.csv')
 df.query.pilot2 <- read.csv('preprocessing/elephants-coord-20200427.csv')
@@ -104,9 +103,3 @@ power.data <- tibble(trial = seq(50, 300, by=50)) %>%
   unnest(tidy)
 
 power.data %>% write.csv('./output/elephants-coord-power-data.csv')
-
-power.data %>% 
-  mutate(achieved = b_conditionnp > 0 | b_conditionpp > 0 | b_conditionvp > 0) %>%
-  group_by(trial) %>%
-  summarize(power = mean(achieved)) %>%
-  kable()
