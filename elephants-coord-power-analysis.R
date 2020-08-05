@@ -26,6 +26,8 @@ df.query.s.onehot <- df.query.critical %>%
   mutate(condition = factor(condition, levels=c("s", "np", "pp", "vp")))
 num.workers <- unique(df.query.s.onehot$workerid) %>% length()
 num.items <- unique(df.query.s.onehot$predicate_1) %>% length()
+
+print("Fitting base model")
 fit.s.onehot <- brm(val ~ condition + (1 + condition | workerid) + (1 + condition | predicate_1), df.query.s.onehot, family=zero_one_inflated_beta(), iter=3000, control = list(adapt_delta=0.9))
 
 get.items.for.participant <- function(workerid) {
@@ -42,6 +44,7 @@ create.new.worker <- function(workerid) {
 
 # fit a single model for a simulation of n.participants
 sim.and.fit <- function(seed, n.participants) {
+  print(paste('Fitting model for', n.participants, "participants with seed", seed, sep=" "))
   fit.simulation <- fit.s.onehot
   
   set.seed(seed)
@@ -88,6 +91,7 @@ sim.and.fit <- function(seed, n.participants) {
 
 # fit n.sim models for a simulation of n.participants
 analyze.power <- function(n.participants, n.sim) {
+  print(paste('Beginning simulation for', n.participants, "participants", sep=" "))
   sims <-
     tibble(seed = 1:n.sim) %>% 
     mutate(tidy = map(seed, sim.and.fit, n.participants = n.participants)) %>% 
