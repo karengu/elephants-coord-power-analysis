@@ -1,7 +1,21 @@
+library(optparse)
 library(brms)
 library(tidyverse)
-library(broom)
+library(broom.mixed)
 library(tidybayes)
+
+option_list = list(
+  make_option(c("-l", "--lower"), type="integer", default=50, 
+              help="lower bound for number of participants [default= %default]", metavar="integer"),
+  make_option(c("-u", "--upper"), type="integer", default=300, 
+              help="upper bound for number of participants [default= %default]", metavar="integer"),
+  make_option(c("-b", "--by"), type="integer", default=50,
+              help="step size for number of participants [default=%default]", metavar="integer"),
+  make_option(c("-s", "--simulations"), type="integer", default=100,
+              help="number of simulations to run [default=%default]", metavar="integer")
+)
+opt_parser = OptionParser(option_list=option_list)
+opt = parse_args(opt_parser)
 
 df.query.pilot1 <- read.csv('preprocessing/elephants-coord-20200414.csv')
 df.query.pilot2 <- read.csv('preprocessing/elephants-coord-20200427.csv')
@@ -28,7 +42,11 @@ num.workers <- unique(df.query.s.onehot$workerid) %>% length()
 num.items <- unique(df.query.s.onehot$predicate_1) %>% length()
 
 print("Fitting base model")
-fit.s.onehot <- brm(val ~ condition + (1 + condition | workerid) + (1 + condition | predicate_1), df.query.s.onehot, family=zero_one_inflated_beta(), iter=3000, control = list(adapt_delta=0.9))
+fit.s.onehot <- brm(
+  val ~ condition + (1 + condition | workerid) + (1 + condition | predicate_1), 
+  df.query.s.onehot, 
+  family=zero_one_inflated_beta(), iter=3000, control = list(adapt_delta=0.9), cores=3
+)
 
 get.items.for.participant <- function(workerid) {
   sample(df.query.s.onehot$predicate_1, 8, replace = F)
@@ -85,8 +103,35 @@ sim.and.fit <- function(seed, n.participants) {
                            newdata = d, 
                            seed = seed)
   
-  fit.simulation %>%
+  sim.result <- fit.simulation %>%
     tidy(prob = .95)
+  
+  sim.summary <- sim.result %>% 
+    select(group, term, conf.low) %>% 
+    spread(term, conf.low) %>% 
+    filter(is.na(group)) %>% 
+    mutate(seed=seed, n.participants=n.participants)
+  
+  if (seed == 1) {
+    sim.summary %>%
+      write.table(
+        paste(paste('./output/elephants-coord-sim', n.participants, sep="-"), '.csv', sep=""),
+        sep=",",
+        row.names = FALSE,
+      )
+  } else {
+    sim.summary %>%
+      write.table(
+        paste(paste('./output/elephants-coord-sim', n.participants, sep="-"), '.csv', sep=""),
+        append = TRUE,
+        col.names = FALSE,
+        row.names = FALSE,
+        sep=","
+      )
+  }
+  
+  sim.result
+
 }
 
 # fit n.sim models for a simulation of n.participants
@@ -96,14 +141,13 @@ analyze.power <- function(n.participants, n.sim) {
     tibble(seed = 1:n.sim) %>% 
     mutate(tidy = map(seed, sim.and.fit, n.participants = n.participants)) %>% 
     unnest(tidy)
-  
-  sims %>% write.csv(paste(paste('./output/elephants-coord-sim', n.participants, sep="-"), '.csv', sep=""))
-
-  sims %>% select(seed, term, lower) %>% spread(term, lower)
+  sims
 }
 
-power.data <- tibble(trial = seq(50, 300, by=50)) %>%
-  mutate(tidy = map(trial, analyze.power, n.sim = 100)) %>%
+power.data <- tibble(trial = seq(opt$lower, opt$upper, by=opt$by)) %>%
+  mutate(tidy = map(trial, analyze.power, n.sim = opt$simulations)) %>%
   unnest(tidy)
 
 power.data %>% write.csv('./output/elephants-coord-power-data.csv')
+
+power.data %>% select(group, term, conf.low, trial, seed) %>% filter(is.na(group)) %>% spread(term, conf.low) %>% mutate(achieved = conditionnp > 0 | conditionpp > 0 | conditionvp > 0) %>% group_by(trial) %>% summarize(power=mean(achieved))
