@@ -60,21 +60,24 @@ create.new.worker <- function(workerid) {
   newid
 }
 
+fit.intermediate <- fit.s.onehot
+
 # fit a single model for a simulation of n.participants
-sim.and.fit <- function(seed, n.participants) {
+sim.and.fit <- function(seed, n.participants, last.sim, first.num) {
   print(paste('Fitting model for', n.participants, "participants with seed", seed, sep=" "))
-  fit.simulation <- fit.s.onehot
-  
   set.seed(seed)
   
-  participants <- sample(
-    unique(df.query.s.onehot$workerid), ifelse(n.participants >= num.workers, num.workers, n.participants)
-  )
-  if (n.participants > num.workers) {
-    participants <- c(participants, create.new.worker(
-      sample(unique(df.query.s.onehot$workerid), n.participants-num.workers, replace = TRUE)
-    ))
+  if (first.num) {
+    # This is the first time we're simulating a group of participants, so start from scratch
+    n.participants.to.sample <- n.participants
+  } else {
+    # We already simulated a group of participants, so build on top of it
+    n.participants.to.sample <- n.participants - fit.intermediate$data %>% distinct(workerid) %>% nrow()
   }
+  
+  participants <- create.new.worker(
+    sample(unique(df.query.s.onehot$workerid), n.participants.to.sample, replace = TRUE)
+  )
   items <- sample(df.query.s.onehot$predicate_1, 8, replace = F)
   trials.per.participant <- c(
     rep(c("s"), each = 2), rep(c("vp"), each = 2), rep(c("pp"), each = 2), rep(c("np"), each = 2)
@@ -84,7 +87,7 @@ sim.and.fit <- function(seed, n.participants) {
     predicate_1 = map(workerid, get.items.for.participant)
   ) %>%
     unnest(cols = c(predicate_1)) %>%
-    mutate(condition = rep(trials.per.participant, times=n.participants))
+    mutate(condition = rep(trials.per.participant, times=n.participants.to.sample))
   
   d <- add_predicted_draws(
     model=fit.s.onehot,
@@ -99,9 +102,12 @@ sim.and.fit <- function(seed, n.participants) {
     d$condition, levels=c("s", "np", "pp", "vp")
   )
   
-  fit.simulation <- update(fit.simulation,
+  fit.simulation <- update(fit.intermediate,
                            newdata = d, 
                            seed = seed)
+  if (last.sim) {
+    fit.intermediate <- fit.simulation
+  }
   
   sim.result <- fit.simulation %>%
     tidy(prob = .95)
@@ -135,17 +141,23 @@ sim.and.fit <- function(seed, n.participants) {
 }
 
 # fit n.sim models for a simulation of n.participants
-analyze.power <- function(n.participants, n.sim) {
+analyze.power <- function(n.participants, n.sim, first.num) {
   print(paste('Beginning simulation for', n.participants, "participants", sep=" "))
   sims <-
     tibble(seed = 1:n.sim) %>% 
-    mutate(tidy = map(seed, sim.and.fit, n.participants = n.participants)) %>% 
+    mutate(tidy = map(
+      seed, 
+      sim.and.fit, 
+      n.participants = n.participants, 
+      last.sim = seed == n.sim, 
+      first.num = first.num)
+    ) %>%
     unnest(tidy)
   sims
 }
 
 power.data <- tibble(trial = seq(opt$lower, opt$upper, by=opt$by)) %>%
-  mutate(tidy = map(trial, analyze.power, n.sim = opt$simulations)) %>%
+  mutate(tidy = map(trial, analyze.power, n.sim = opt$simulations, first.num = trial == opt$lower)) %>%
   unnest(tidy)
 
 power.data %>% write.csv('./output/elephants-coord-power-data.csv')
