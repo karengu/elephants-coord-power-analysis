@@ -119,7 +119,6 @@ sim.and.fit <- function(seed, n.participants, last.sim, first.num) {
   sim.summary <- sim.result %>% 
     select(group, term, conf.low) %>% 
     spread(term, conf.low) %>% 
-    filter(is.na(group)) %>% 
     mutate(seed=seed, n.participants=n.participants)
   
   filename.to.write <- paste(paste('./output/elephants-coord-sim', n.participants, sep="-"), '.csv', sep="")
