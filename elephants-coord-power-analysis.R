@@ -11,8 +11,10 @@ option_list = list(
               help="upper bound for number of participants [default= %default]", metavar="integer"),
   make_option(c("-b", "--by"), type="integer", default=50,
               help="step size for number of participants [default=%default]", metavar="integer"),
-  make_option(c("-s", "--simulations"), type="integer", default=100,
-              help="number of simulations to run [default=%default]", metavar="integer")
+  make_option(c("-s", "--simulation.start"), type="integer", default=1,
+              help="beginning seed for simulations [default=%default]", metavar="integer"),
+  make_option(c("-e", "--simulation.end"), type="integer", default=100,
+              help="ending seed for simulations [default=%default]", metavar="integer")
 )
 opt_parser = OptionParser(option_list=option_list)
 opt = parse_args(opt_parser)
@@ -45,7 +47,7 @@ print("Fitting base model")
 fit.s.onehot <- brm(
   val ~ condition + (1 + condition | workerid) + (1 + condition | predicate_1), 
   df.query.s.onehot, 
-  family=zero_one_inflated_beta(), iter=3000, control = list(adapt_delta=0.9), cores=3
+  family=zero_one_inflated_beta(), iter=3000, chains=4, cores=4, control = list(adapt_delta=0.9)
 )
 
 get.items.for.participant <- function(workerid) {
@@ -104,7 +106,9 @@ sim.and.fit <- function(seed, n.participants, last.sim, first.num) {
   
   fit.simulation <- update(fit.intermediate,
                            newdata = d, 
-                           seed = seed)
+                           seed = seed,
+                           chains = 4,
+                           cores = 4)
   if (last.sim) {
     fit.intermediate <- fit.simulation
   }
@@ -118,17 +122,19 @@ sim.and.fit <- function(seed, n.participants, last.sim, first.num) {
     filter(is.na(group)) %>% 
     mutate(seed=seed, n.participants=n.participants)
   
-  if (seed == 1) {
+  filename.to.write <- paste(paste('./output/elephants-coord-sim', n.participants, sep="-"), '.csv', sep="")
+  
+  if (seed == 1 | !file.exists(filename.to.write)) {
     sim.summary %>%
       write.table(
-        paste(paste('./output/elephants-coord-sim', n.participants, sep="-"), '.csv', sep=""),
+        filename.to.write,
         sep=",",
         row.names = FALSE,
       )
   } else {
     sim.summary %>%
       write.table(
-        paste(paste('./output/elephants-coord-sim', n.participants, sep="-"), '.csv', sep=""),
+        filename.to.write,
         append = TRUE,
         col.names = FALSE,
         row.names = FALSE,
@@ -141,15 +147,15 @@ sim.and.fit <- function(seed, n.participants, last.sim, first.num) {
 }
 
 # fit n.sim models for a simulation of n.participants
-analyze.power <- function(n.participants, n.sim, first.num) {
+analyze.power <- function(n.participants, beginning.seed, ending.seed, first.num) {
   print(paste('Beginning simulation for', n.participants, "participants", sep=" "))
   sims <-
-    tibble(seed = 1:n.sim) %>% 
+    tibble(seed = beginning.seed:ending.seed) %>% 
     mutate(tidy = map(
       seed, 
       sim.and.fit, 
       n.participants = n.participants, 
-      last.sim = seed == n.sim, 
+      last.sim = seed == ending.seed, 
       first.num = first.num)
     ) %>%
     unnest(tidy)
@@ -157,7 +163,12 @@ analyze.power <- function(n.participants, n.sim, first.num) {
 }
 
 power.data <- tibble(trial = seq(opt$lower, opt$upper, by=opt$by)) %>%
-  mutate(tidy = map(trial, analyze.power, n.sim = opt$simulations, first.num = trial == opt$lower)) %>%
+  mutate(tidy = map(
+    trial, analyze.power, 
+    beginning.seed = opt$simulation.start, 
+    ending.seed = opt$simulation.end, 
+    first.num = trial == opt$lower)
+  ) %>%
   unnest(tidy)
 
 power.data %>% write.csv('./output/elephants-coord-power-data.csv')
