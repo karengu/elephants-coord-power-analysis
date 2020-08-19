@@ -11,10 +11,10 @@ option_list = list(
               help="upper bound for number of participants [default= %default]", metavar="integer"),
   make_option(c("-b", "--by"), type="integer", default=50,
               help="step size for number of participants [default=%default]", metavar="integer"),
-  make_option(c("-s", "--simulation.start"), type="integer", default=1,
-              help="beginning seed for simulations [default=%default]", metavar="integer"),
-  make_option(c("-e", "--simulation.end"), type="integer", default=100,
-              help="ending seed for simulations [default=%default]", metavar="integer")
+  make_option(c("-s", "--simulations"), type="integer", default=100,
+              help="number of simulations [default=%default]", metavar="integer"),
+  make_option(c("-i", "--index"), type="integer", default=1,
+              help="batch index [default=%default]", metavar="integer")
 )
 opt_parser = OptionParser(option_list=option_list)
 opt = parse_args(opt_parser)
@@ -123,7 +123,7 @@ sim.and.fit <- function(seed, n.participants, last.sim, first.num) {
   
   filename.to.write <- paste(paste('./output/elephants-coord-sim', n.participants, sep="-"), '.csv', sep="")
   
-  if (seed == 1 | !file.exists(filename.to.write)) {
+  if (!file.exists(filename.to.write)) {
     sim.summary %>%
       write.table(
         filename.to.write,
@@ -164,8 +164,8 @@ analyze.power <- function(n.participants, beginning.seed, ending.seed, first.num
 power.data <- tibble(trial = seq(opt$lower, opt$upper, by=opt$by)) %>%
   mutate(tidy = map(
     trial, analyze.power, 
-    beginning.seed = opt$simulation.start, 
-    ending.seed = opt$simulation.end, 
+    beginning.seed = (opt$index-1)*opt$simulations + 1, 
+    ending.seed = (opt$index-1)*opt$simulations + 1 + opt$simulations, 
     first.num = trial == opt$lower)
   ) %>%
   unnest(tidy)
