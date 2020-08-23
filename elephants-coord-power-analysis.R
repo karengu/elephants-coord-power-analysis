@@ -14,7 +14,13 @@ option_list = list(
   make_option(c("-s", "--simulations"), type="integer", default=100,
               help="number of simulations [default=%default]", metavar="integer"),
   make_option(c("-i", "--index"), type="integer", default=1,
-              help="batch index [default=%default]", metavar="integer")
+              help="batch index [default=%default]", metavar="integer"),
+  make_option(c("--lower.items"), type="integer", default=11,
+             help="lower bound for number of items [default=%default]", metavar="integer"),
+  make_option(c("--upper.items"), type="integer", default=21,
+              help="upper bound for number of items [default=%default]", metavar="integer"),
+  make_option(c("--by.items"), type="integer", default=3,
+              help="step size for number of items [default=%default]", metavar="integer")
 )
 opt_parser = OptionParser(option_list=option_list)
 opt = parse_args(opt_parser)
@@ -50,8 +56,8 @@ fit.s.onehot <- brm(
   family=zero_one_inflated_beta(), iter=3000, chains=4, cores=4, control = list(adapt_delta=0.9)
 )
 
-get.items.for.participant <- function(workerid) {
-  sample(df.query.s.onehot$predicate_1, 8, replace = F)
+get.items.for.participant <- function(workerid, items) {
+  sample(items, 8, replace = F)
 }
 
 create.new.worker <- function(workerid) {
@@ -62,12 +68,24 @@ create.new.worker <- function(workerid) {
   newid
 }
 
+create.new.item <- function(item) {
+  mutation <- sample(letters, length(item), replace = TRUE)[1:length(item)]
+  mutation.index <- sample(1:length(item), length(item), replace = TRUE)[1:length(item)]
+  newitem <- item
+  str_sub(newitem, mutation.index, mutation.index) <- mutation
+  newitem
+}
+
 fit.intermediate <- fit.s.onehot
 
 # fit a single model for a simulation of n.participants
-sim.and.fit <- function(seed, n.participants, last.sim, first.num) {
-  print(paste('Fitting model for', n.participants, "participants with seed", seed, sep=" "))
+sim.and.fit <- function(seed, n.participants, n.items, last.sim, first.num) {
+  print(paste('Fitting model for', n.participants, "participants and", n.items, "items with seed", seed, sep=" "))
   set.seed(seed)
+  
+  experimental.items <- create.new.item(
+    sample(unique(df.query.s.onehot$workerid), n.items, replace = TRUE)
+  )
   
   if (first.num) {
     # This is the first time we're simulating a group of participants, so start from scratch
@@ -80,13 +98,12 @@ sim.and.fit <- function(seed, n.participants, last.sim, first.num) {
   participants <- create.new.worker(
     sample(unique(df.query.s.onehot$workerid), n.participants.to.sample, replace = TRUE)
   )
-  items <- sample(df.query.s.onehot$predicate_1, 8, replace = F)
   trials.per.participant <- c(
     rep(c("s"), each = 2), rep(c("vp"), each = 2), rep(c("pp"), each = 2), rep(c("np"), each = 2)
   )
   newdata <- tibble(
     workerid = participants,
-    predicate_1 = map(workerid, get.items.for.participant)
+    predicate_1 = map(workerid, get.items.for.participant, items=experimental.items)
   ) %>%
     unnest(cols = c(predicate_1)) %>%
     mutate(condition = rep(trials.per.participant, times=n.participants.to.sample))
@@ -119,9 +136,9 @@ sim.and.fit <- function(seed, n.participants, last.sim, first.num) {
   sim.summary <- sim.result %>% 
     select(group, term, conf.low) %>% 
     spread(term, conf.low) %>% 
-    mutate(seed=seed, n.participants=n.participants)
+    mutate(seed=seed, n.participants=n.participants, n.items=n.items)
   
-  filename.to.write <- paste(paste('./output/elephants-coord-sim', n.participants, sep="-"), '.csv', sep="")
+  filename.to.write <- paste(paste('./output/elephants-coord-sim', n.participants, 'items', n.items, sep="-"), '.csv', sep="")
   
   if (!file.exists(filename.to.write)) {
     sim.summary %>%
@@ -146,14 +163,15 @@ sim.and.fit <- function(seed, n.participants, last.sim, first.num) {
 }
 
 # fit n.sim models for a simulation of n.participants
-analyze.power <- function(n.participants, beginning.seed, ending.seed, first.num) {
-  print(paste('Beginning simulation for', n.participants, "participants", sep=" "))
+analyze.power <- function(n.participants, n.items, beginning.seed, ending.seed, first.num) {
+  print(paste('Beginning simulation for', n.participants, "participants and", n.items, "items", sep=" "))
   sims <-
     tibble(seed = beginning.seed:ending.seed) %>% 
     mutate(tidy = map(
       seed, 
       sim.and.fit, 
       n.participants = n.participants, 
+      n.items = n.items,
       last.sim = seed == ending.seed, 
       first.num = first.num)
     ) %>%
@@ -161,9 +179,12 @@ analyze.power <- function(n.participants, beginning.seed, ending.seed, first.num
   sims
 }
 
-power.data <- tibble(trial = seq(opt$lower, opt$upper, by=opt$by)) %>%
-  mutate(tidy = map(
-    trial, analyze.power, 
+power.data <- cross_df(list(
+    trial = seq(opt$lower, opt$upper, by=opt$by),
+    item = seq(opt$lower.items, opt$upper.items, by=opt$by.items)
+  )) %>%
+  mutate(tidy = map2(
+    trial, item, analyze.power, 
     beginning.seed = (opt$index-1)*opt$simulations + 1, 
     ending.seed = (opt$index-1)*opt$simulations + 1 + opt$simulations, 
     first.num = trial == opt$lower)
