@@ -83,9 +83,18 @@ sim.and.fit <- function(seed, n.participants, n.items, last.sim, first.num) {
   print(paste('Fitting model for', n.participants, "participants and", n.items, "items with seed", seed, sep=" "))
   set.seed(seed)
   
-  experimental.items <- create.new.item(
-    sample(unique(df.query.s.onehot$workerid), n.items, replace = TRUE)
-  )
+  if (n.items > length(unique(df.query.s.onehot$predicate_1))) {
+    experimental.items <- c(
+      create.new.item(sample(
+        unique(df.query.s.onehot$predicate_1),
+        n.items-length(unique(df.query.s.onehot$predicate_1)), 
+        replace = TRUE
+      )),
+      unique(df.query.s.onehot$predicate_1)
+    )
+  } else {
+    experimental.items <- sample(unique(df.query.s.onehot$predicate_1), n.items, replace = FALSE)
+  }
   
   if (first.num) {
     # This is the first time we're simulating a group of participants, so start from scratch
@@ -98,6 +107,7 @@ sim.and.fit <- function(seed, n.participants, n.items, last.sim, first.num) {
   participants <- create.new.worker(
     sample(unique(df.query.s.onehot$workerid), n.participants.to.sample, replace = TRUE)
   )
+  
   trials.per.participant <- c(
     rep(c("s"), each = 2), rep(c("vp"), each = 2), rep(c("pp"), each = 2), rep(c("np"), each = 2)
   )
